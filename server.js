@@ -79,17 +79,37 @@ function formatPhone(phone) {
   return p;
 }
 
-// ─── ExoML — spoken when customer picks up ────────────
+// ─── ExoML — static endpoint set in Exotel App ────────
+// Exotel calls this URL when customer picks up
+// CallSid is passed as query param by Exotel automatically
+app.get('/exoml', (req, res) => {
+  const exotelSid = req.query.CallSid || req.query.callsid || '';
+  const log = Object.values(callLog).find(l =>
+    l.exotelSid === exotelSid || l.callId === exotelSid
+  );
+  const script = log?.script || buildTemplate({ name: 'ji', outstanding: 'kuch' });
+
+  res.set('Content-Type', 'application/xml');
+  res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say lang="hi" voice="female">${script}</Say>
+  <Pause length="1"/>
+  <Say lang="hi" voice="female">${script}</Say>
+  <Say lang="hi" voice="female">Dhanyawad. Alvida!</Say>
+</Response>`);
+});
+
+// ─── ExoML — dynamic per callId (backup) ──────────────
 app.get('/tts/:callId', (req, res) => {
   const log = Object.values(callLog).find(l => l.callId === req.params.callId);
   const script = log?.script || buildTemplate({});
   res.set('Content-Type', 'application/xml');
   res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say>${script}</Say>
+  <Say lang="hi" voice="female">${script}</Say>
   <Pause length="1"/>
-  <Say>${script}</Say>
-  <Say>Dhanyawad. Alvida!</Say>
+  <Say lang="hi" voice="female">${script}</Say>
+  <Say lang="hi" voice="female">Dhanyawad. Alvida!</Say>
 </Response>`);
 });
 
