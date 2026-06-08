@@ -16,6 +16,9 @@ const PORT               = process.env.PORT || 3000;
 const BASE_URL           = process.env.BASE_URL;
 
 const EXOTEL_BASE = `https://${EXOTEL_API_KEY}:${EXOTEL_API_TOKEN}@api.exotel.com/v1/Accounts/${EXOTEL_ACCOUNT_SID}`;
+
+// Store scripts by phone number — survives across calls in same session
+const scriptStore = {};
 const callLog = {};
 
 async function generateScript(customer) {
@@ -44,7 +47,7 @@ Customer: ${customer.name}, Amount: Rs ${customer.outstanding}, Company: SLP Pri
 }
 
 function buildTemplate(customer) {
-  const name = customer.name || 'Customer';
+  const name = customer.name || 'aap';
   const amt  = customer.outstanding || 'kuch';
   return `Namaste ${name} ji! Main SLP Price ki taraf se bol raha hoon. Aapka hamare paas rupaye ${amt} ka outstanding payment pending hai. Kripya jald se jald payment kar dijiye. Dhanyawad!`;
 }
@@ -55,56 +58,58 @@ function formatPhone(phone) {
   return p;
 }
 
-// ─── THIS IS THE KEY ENDPOINT — Exotel fetches this when call connects ───
+// ─── /exoml — Exotel fetches this when call connects ──
+// Looks up script by phone number (CallFrom param sent by Exotel)
 app.get('/exoml', (req, res) => {
-  console.log('ExoML called with query:', JSON.stringify(req.query));
-  const script = buildTemplate({ name: 'Customer', outstanding: 'outstanding' });
-  res.set('Content-Type', 'text/xml');
-  res.send(`<?xml version="1.0" encoding="UTF-8"?><Response><Say>Namaste! Yeh SLP Price ki taraf se call hai.</Say><Say>${script}</Say><Pause length="1"/><Say>${script}</Say><Say>Dhanyawad. Alvida!</Say></Response>`);
-});
+  console.log('ExoML hit, query:', JSON.stringify(req.query));
+  const callFrom = (req.query.CallFrom || req.query.callfrom || '').replace(/\D/g, '');
+  const last10 = callFrom.slice(-10);
 
-app.get('/tts/:callId', (req, res) => {
-  console.log('TTS called for:', req.params.callId);
-  const log = Object.values(callLog).find(l => l.callId === req.params.callId);
-  const script = log?.script || buildTemplate({ name: 'Customer', outstanding: 'outstanding' });
+  // Find script stored for this phone number
+  const script = scriptStore[last10] || scriptStore[callFrom] || buildTemplate({ name: 'aap', outstanding: 'outstanding' });
+  console.log('Script for', last10, ':', script);
+
   res.set('Content-Type', 'text/xml');
-  res.send(`<?xml version="1.0" encoding="UTF-8"?><Response><Say>Namaste! Yeh SLP Price ki taraf se call hai.</Say><Say>${script}</Say><Pause length="1"/><Say>${script}</Say><Say>Dhanyawad. Alvida!</Say></Response>`);
+  res.send(`<?xml version="1.0" encoding="UTF-8"?><Response><Say>Namaste! Yeh S L P Price ki taraf se ek important call hai.</Say><Pause length="1"/><Say>${script}</Say><Pause length="2"/><Say>${script}</Say><Say>Dhanyawad. Alvida!</Say></Response>`);
 });
 
 app.post('/callback', (req, res) => {
   console.log('Callback:', req.body);
-  const { CallSid, Status } = req.body;
-  const log = Object.values(callLog).find(l => l.exotelSid === CallSid);
-  if (log) log.status = Status || 'completed';
   res.sendStatus(200);
 });
 
-async function makeExotelCall(phone, callId) {
-  const response = await axios.post(
-    `${EXOTEL_BASE}/Calls/connect.json`,
-    new URLSearchParams({
-      'From': formatPhone(phone),
-      'CallerId': EXOTEL_CALLER_ID,
-      'Url': `${BASE_URL}/tts/${callId}`,
-      'StatusCallback': `${BASE_URL}/callback`,
-      'TimeLimit': '120',
-      'TimeOut': '30'
-    }),
-    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-  );
-  return response.data;
-}
-
+// ─── Single call ──────────────────────────────────────
 app.post('/api/call', async (req, res) => {
   const { name, phone, outstanding, dueSince } = req.body;
   if (!phone || !name || !outstanding)
-    return res.status(400).json({ error: 'name, phone, outstanding are required' });
+    return res.status(400).json({ error: 'name, phone, outstanding required' });
+
   const callId = `call_${Date.now()}`;
+  const cleanPhone = phone.toString().replace(/\D/g, '').slice(-10);
+
   try {
     const script = await generateScript({ name, outstanding, dueSince });
-    callLog[callId] = { callId, name, phone, outstanding, script, status: 'initiated', time: new Date().toISOString() };
-    const data = await makeExotelCall(phone, callId);
-    callLog[callId].exotelSid = data?.Call?.Sid || callId;
+
+    // Store script by phone number so /exoml can retrieve it
+    scriptStore[cleanPhone] = script;
+    console.log('Stored script for', cleanPhone, ':', script);
+
+    callLog[callId] = { callId, name, phone: cleanPhone, outstanding, script, status: 'initiated', time: new Date().toISOString() };
+
+    const response = await axios.post(
+      `${EXOTEL_BASE}/Calls/connect.json`,
+      new URLSearchParams({
+        'From':           formatPhone(phone),
+        'CallerId':       EXOTEL_CALLER_ID,
+        'Url':            `${BASE_URL}/exoml`,
+        'StatusCallback': `${BASE_URL}/callback`,
+        'TimeLimit':      '120',
+        'TimeOut':        '30'
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    );
+
+    callLog[callId].exotelSid = response.data?.Call?.Sid || callId;
     res.json({ success: true, callSid: callLog[callId].exotelSid, script });
   } catch (err) {
     console.error('Call error:', err?.response?.data || err.message);
@@ -113,22 +118,40 @@ app.post('/api/call', async (req, res) => {
   }
 });
 
+// ─── Bulk calls ───────────────────────────────────────
 app.post('/api/call-all', async (req, res) => {
   const { customers } = req.body;
   if (!customers?.length) return res.status(400).json({ error: 'No customers' });
+
   const results = [];
   for (const c of customers) {
     await new Promise(r => setTimeout(r, 3000));
     const callId = `call_${Date.now()}`;
+    const cleanPhone = c.phone.toString().replace(/\D/g, '').slice(-10);
     try {
       const script = await generateScript(c);
-      callLog[callId] = { callId, name: c.name, phone: c.phone, outstanding: c.outstanding, script, status: 'initiated', time: new Date().toISOString() };
-      const data = await makeExotelCall(c.phone, callId);
-      callLog[callId].exotelSid = data?.Call?.Sid || callId;
-      results.push({ name: c.name, phone: c.phone, callSid: callLog[callId].exotelSid, status: 'initiated' });
+      scriptStore[cleanPhone] = script;
+
+      callLog[callId] = { callId, name: c.name, phone: cleanPhone, outstanding: c.outstanding, script, status: 'initiated', time: new Date().toISOString() };
+
+      const response = await axios.post(
+        `${EXOTEL_BASE}/Calls/connect.json`,
+        new URLSearchParams({
+          'From':           formatPhone(c.phone),
+          'CallerId':       EXOTEL_CALLER_ID,
+          'Url':            `${BASE_URL}/exoml`,
+          'StatusCallback': `${BASE_URL}/callback`,
+          'TimeLimit':      '120',
+          'TimeOut':        '30'
+        }),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+      );
+
+      callLog[callId].exotelSid = response.data?.Call?.Sid || callId;
+      results.push({ name: c.name, phone: cleanPhone, status: 'initiated' });
     } catch (err) {
       if (callLog[callId]) callLog[callId].status = 'failed';
-      results.push({ name: c.name, phone: c.phone, status: 'failed', error: err?.response?.data?.RestException?.Message || err.message });
+      results.push({ name: c.name, phone: cleanPhone, status: 'failed', error: err?.response?.data?.RestException?.Message || err.message });
     }
   }
   res.json({ success: true, results });
@@ -145,4 +168,4 @@ app.get('/health', (req, res) => res.json({
   exomlUrl: `${BASE_URL}/exoml`
 }));
 
-app.listen(PORT, () => console.log(`Server on port ${PORT}`));
+app.listen(PORT, () => console.log(`AutoCall v3 Server on port ${PORT}`));
