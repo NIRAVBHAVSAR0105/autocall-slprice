@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoCall — SLP Price</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f3ef;color:#1a1714;min-height:100vh}
+  .app{display:grid;grid-template-columns:260px 1fr;min-height:100vh}
+  .sidebar{background:#fff;border-right:1px solid #e2ddd6;padding:1.5rem;display:flex;flex-direction:column;gap:1.5rem}
+  .main{padding:2rem;overflow-y:auto}
+  .logo{display:flex;align-items:center;gap:10px}
+  .logo-icon{width:38px;height:38px;background:#c84b2f;border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:18px}
+  .logo-text{font-size:16px;font-weight:600}
+  .logo-sub{font-size:11px;color:#9c9590}
+  .nav-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;font-size:13px;color:#6b6560;cursor:pointer;border:none;background:none;width:100%;text-align:left}
+  .nav-item:hover{background:#f0ede8;color:#1a1714}
+  .nav-item.active{background:#fdf0ed;color:#c84b2f;font-weight:500}
+  .status-pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:500;padding:4px 10px;border-radius:100px;background:#f0ede8;color:#9c9590}
+  .status-pill.connected{background:#edf7f2;color:#2d7a4f}
+  .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+  .page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
+  .page-title{font-size:22px;font-weight:600;letter-spacing:-0.5px}
+  .page-sub{font-size:13px;color:#6b6560;margin-top:2px}
+  .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:1.5rem}
+  .metric{background:#fff;border:1px solid #e2ddd6;border-radius:10px;padding:1rem 1.2rem}
+  .metric-label{font-size:11px;color:#9c9590;font-weight:500;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px}
+  .metric-val{font-size:26px;font-weight:600;letter-spacing:-1px}
+  .metric-val.red{color:#c84b2f}
+  .metric-val.green{color:#2d7a4f}
+  .metric-val.amber{color:#c47c14}
+  .upload-zone{background:#fff;border:1.5px dashed #e2ddd6;border-radius:10px;padding:2rem;text-align:center;cursor:pointer;transition:all 0.2s;margin-bottom:1.5rem}
+  .upload-zone:hover{border-color:#c84b2f;background:#fdf0ed}
+  .upload-zone.loaded{border-style:solid;border-color:#2d7a4f;background:#edf7f2}
+  .upload-title{font-size:14px;font-weight:500;margin-bottom:4px}
+  .upload-sub{font-size:12px;color:#9c9590}
+  .btn{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:7px;font-size:13px;font-weight:500;cursor:pointer;border:none;transition:all 0.15s;font-family:inherit}
+  .btn-primary{background:#c84b2f;color:white}
+  .btn-primary:hover{background:#b03e24}
+  .btn-primary:disabled{background:#9c9590;cursor:not-allowed}
+  .btn-secondary{background:#fff;color:#1a1714;border:1px solid #e2ddd6}
+  .btn-secondary:hover{background:#f0ede8}
+  .btn-sm{padding:5px 10px;font-size:12px;border-radius:5px}
+  .btn-ghost{background:none;border:1px solid #e2ddd6;color:#6b6560}
+  .btn-ghost:hover{background:#f0ede8;color:#1a1714}
+  .table-wrap{background:#fff;border:1px solid #e2ddd6;border-radius:10px;overflow:hidden}
+  .table-header{display:flex;align-items:center;justify-content:space-between;padding:1rem 1.2rem;border-bottom:1px solid #e2ddd6}
+  .table-title{font-size:14px;font-weight:600}
+  .table-count{font-size:12px;color:#9c9590;background:#f0ede8;padding:2px 8px;border-radius:100px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{padding:10px 14px;text-align:left;font-size:11px;font-weight:500;color:#9c9590;text-transform:uppercase;letter-spacing:0.4px;background:#f0ede8;border-bottom:1px solid #e2ddd6}
+  td{padding:11px 14px;border-bottom:1px solid #e2ddd6;color:#1a1714}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:#f5f3ef}
+  .badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:100px;font-size:11px;font-weight:500}
+  .badge-pending{background:#fef7e8;color:#c47c14}
+  .badge-called{background:#edf7f2;color:#2d7a4f}
+  .badge-failed{background:#fdf0ed;color:#c84b2f}
+  .badge-calling{background:#f0ede8;color:#6b6560}
+  .log-item{display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border-bottom:1px solid #e2ddd6}
+  .log-item:last-child{border-bottom:none}
+  .log-icon{width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px}
+  .log-icon.success{background:#edf7f2;color:#2d7a4f}
+  .log-icon.fail{background:#fdf0ed;color:#c84b2f}
+  .log-name{font-size:13px;font-weight:500}
+  .log-detail{font-size:12px;color:#6b6560;margin-top:2px}
+  .log-script{font-size:12px;color:#9c9590;margin-top:4px;font-style:italic}
+  .log-time{font-size:11px;color:#9c9590;margin-left:auto;flex-shrink:0}
+  .schedule-card{background:#fff;border:1px solid #e2ddd6;border-radius:10px;padding:1.5rem;margin-bottom:1.5rem}
+  .toggle{position:relative;width:40px;height:22px}
+  .toggle input{opacity:0;width:0;height:0}
+  .slider{position:absolute;cursor:pointer;inset:0;background:#e2ddd6;border-radius:22px;transition:0.3s}
+  .slider:before{content:'';position:absolute;width:16px;height:16px;left:3px;bottom:3px;background:white;border-radius:50%;transition:0.3s}
+  input:checked+.slider{background:#2d7a4f}
+  input:checked+.slider:before{transform:translateX(18px)}
+  #toast{position:fixed;bottom:24px;right:24px;background:#1a1714;color:white;padding:10px 18px;border-radius:8px;font-size:13px;z-index:999;opacity:0;transform:translateY(8px);transition:all 0.25s;pointer-events:none}
+  #toast.show{opacity:1;transform:translateY(0)}
+  .empty{text-align:center;padding:3rem;color:#9c9590;font-size:14px}
+  input[type=file]{display:none}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="logo-icon">📞</div>
+      <div>
+        <div class="logo-text">AutoCall</div>
+        <div class="logo-sub">SLP Price</div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:600;color:#6b6560;margin-bottom:8px">Server Status</div>
+      <span class="status-pill connected" id="connStatus"><span class="dot"></span>Connected</span>
+    </div>
+    <nav style="display:flex;flex-direction:column;gap:2px">
+      <button class="nav-item active" onclick="showTab('dashboard')">📊 Dashboard</button>
+      <button class="nav-item" onclick="showTab('logs');fetchLogs()">📋 Call Logs</button>
+      <button class="nav-item" onclick="showTab('schedule')">⏰ Schedule</button>
+    </nav>
+    <div style="margin-top:auto;font-size:11px;color:#9c9590;line-height:1.6">
+      Server: autocall-slprice.onrender.com<br>
+      Caller ID: 07948501640<br>
+      Account: slprice1
+    </div>
+  </aside>
+
+  <main class="main">
+    <!-- Dashboard -->
+    <div id="tab-dashboard">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Outstanding Reminders</div>
+          <div class="page-sub">Auto-call customers with pending payments</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-secondary" onclick="document.getElementById('fileInput').click()">⬆ Upload Excel</button>
+          <button class="btn btn-primary" id="callAllBtn" onclick="callAll()" disabled>📞 Call All Pending</button>
+        </div>
+      </div>
+
+      <div class="metrics">
+        <div class="metric"><div class="metric-label">Total customers</div><div class="metric-val" id="m-total">0</div></div>
+        <div class="metric"><div class="metric-label">Outstanding</div><div class="metric-val red" id="m-outstanding">₹0</div></div>
+        <div class="metric"><div class="metric-label">Called today</div><div class="metric-val green" id="m-called">0</div></div>
+        <div class="metric"><div class="metric-label">Pending calls</div><div class="metric-val amber" id="m-pending">0</div></div>
+      </div>
+
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" onchange="loadExcel(event)">
+      <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+        <div style="font-size:32px;margin-bottom:8px">📊</div>
+        <div class="upload-title">Upload your Excel file</div>
+        <div class="upload-sub">Columns needed: name, phone, outstanding — .xlsx or .csv</div>
+      </div>
+
+      <div class="table-wrap" id="tableWrap" style="display:none">
+        <div class="table-header">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="table-title">Customers</span>
+            <span class="table-count" id="tableCount">0 records</span>
+          </div>
+          <select id="filterStatus" onchange="renderTable()" style="font-size:12px;padding:5px 8px;border:1px solid #e2ddd6;border-radius:5px;background:#f0ede8;color:#1a1714;font-family:inherit">
+            <option value="all">All customers</option>
+            <option value="pending">Pending only</option>
+            <option value="called">Called</option>
+          </select>
+        </div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr><th>Customer</th><th>Phone</th><th>Outstanding</th><th>Due Since</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Logs -->
+    <div id="tab-logs" style="display:none">
+      <div class="page-header">
+        <div><div class="page-title">Call Logs</div><div class="page-sub">History of all calls made today</div></div>
+        <button class="btn btn-secondary" onclick="fetchLogs()">🔄 Refresh</button>
+      </div>
+      <div class="table-wrap"><div id="logsList"><div class="empty">No calls yet. Upload Excel and start calling!</div></div></div>
+    </div>
+
+    <!-- Schedule -->
+    <div id="tab-schedule" style="display:none">
+      <div class="page-header"><div><div class="page-title">Auto Schedule</div><div class="page-sub">Set daily automatic calling time</div></div></div>
+      <div class="schedule-card">
+        <div style="font-size:14px;font-weight:600;margin-bottom:1rem">Daily Call Schedule</div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <span style="font-size:13px;color:#6b6560">Enable daily auto-calls</span>
+          <label class="toggle"><input type="checkbox" id="scheduleToggle"><span class="slider"></span></label>
+          <span style="font-size:13px;color:#6b6560">at</span>
+          <input type="time" id="scheduleTime" value="10:00" style="background:#f0ede8;border:1px solid #e2ddd6;border-radius:6px;padding:7px 12px;font-size:13px;color:#1a1714;outline:none">
+          <button class="btn btn-primary btn-sm" onclick="saveSchedule()">Save Schedule</button>
+        </div>
+        <div style="margin-top:1rem;padding:12px;background:#f0ede8;border-radius:6px;font-size:12px;color:#6b6560;line-height:1.7">
+          ⏰ Calls go out automatically every day at the set time.<br>
+          📋 Make sure Excel is uploaded before the scheduled time.<br>
+          🔔 You can also trigger calls manually anytime from Dashboard.
+        </div>
+      </div>
+      <div class="schedule-card">
+        <div style="font-size:14px;font-weight:600;margin-bottom:8px">Sample AI Script (Gemini)</div>
+        <div style="background:#f0ede8;border-radius:6px;padding:10px 12px;font-size:12px;color:#6b6560;font-style:italic;border-left:2px solid #c84b2f">
+          "Namaste Rajesh ji! Main SLP Price ki taraf se bol raha hoon. Aapka rupaye 45,000 ka outstanding payment pending hai. Kripya jald payment karein. Dhanyawad!"
+        </div>
+        <div style="margin-top:6px;font-size:11px;color:#9c9590">Each customer gets a unique personalized message with their name and exact amount.</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const SERVER = 'https://autocall-slprice.onrender.com';
+let customers = [];
+let callStatus = {};
+let scheduleTimer = null;
+
+function loadExcel(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const wb = XLSX.read(ev.target.result, { type: 'binary', cellDates: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      customers = raw.map((row, i) => {
+        const get = (terms) => {
+          const k = Object.keys(row).find(k => terms.some(t => k.toLowerCase().includes(t)));
+          return k ? String(row[k]).trim() : '';
+        };
+        return {
+          id: i,
+          name: get(['name','customer','party','client']) || `Customer ${i+1}`,
+          phone: get(['phone','mobile','contact','number','cell']),
+          outstanding: get(['outstanding','amount','balance','due','payment','invoice']),
+          dueSince: get(['due date','due_date','date','since','overdue'])
+        };
+      }).filter(c => c.phone && c.outstanding);
+
+      callStatus = {};
+      customers.forEach(c => callStatus[c.id] = 'pending');
+
+      document.getElementById('uploadZone').className = 'upload-zone loaded';
+      document.getElementById('uploadZone').innerHTML = `<div style="font-size:32px;margin-bottom:8px">✅</div><div class="upload-title" style="color:#2d7a4f">${file.name} — ${customers.length} customers loaded</div><div class="upload-sub">Click to replace</div>`;
+      document.getElementById('tableWrap').style.display = 'block';
+      document.getElementById('callAllBtn').disabled = false;
+      updateMetrics();
+      renderTable();
+      showToast(`Loaded ${customers.length} customers!`);
+    } catch(err) {
+      showToast('Could not read file. Please use .xlsx or .csv');
+    }
+  };
+  reader.readAsBinaryString(file);
+}
+
+function updateMetrics() {
+  const total = customers.length;
+  const outstanding = customers.reduce((s, c) => s + (parseFloat(String(c.outstanding).replace(/[^0-9.]/g,'')) || 0), 0);
+  const called = Object.values(callStatus).filter(s => s === 'called').length;
+  const pending = Object.values(callStatus).filter(s => s === 'pending').length;
+  document.getElementById('m-total').textContent = total;
+  document.getElementById('m-outstanding').textContent = '₹' + outstanding.toLocaleString('en-IN', {maximumFractionDigits:0});
+  document.getElementById('m-called').textContent = called;
+  document.getElementById('m-pending').textContent = pending;
+}
+
+function renderTable() {
+  const filter = document.getElementById('filterStatus').value;
+  const filtered = customers.filter(c => {
+    if (filter === 'all') return true;
+    if (filter === 'pending') return callStatus[c.id] === 'pending';
+    if (filter === 'called') return callStatus[c.id] === 'called';
+    return true;
+  });
+  document.getElementById('tableCount').textContent = filtered.length + ' records';
+  const badgeMap = { pending:'badge-pending', called:'badge-called', failed:'badge-failed', calling:'badge-calling' };
+  const labelMap = { pending:'Pending', called:'Called ✅', failed:'Failed ❌', calling:'Calling...' };
+  const tbody = document.getElementById('tableBody');
+  if (!filtered.length) { tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:2rem;color:#9c9590">No records found</td></tr>`; return; }
+  tbody.innerHTML = filtered.map(c => {
+    const amt = parseFloat(String(c.outstanding).replace(/[^0-9.]/g,'')) || 0;
+    const status = callStatus[c.id] || 'pending';
+    return `<tr>
+      <td style="font-weight:500">${c.name}</td>
+      <td style="font-family:monospace;font-size:12px">${c.phone}</td>
+      <td style="font-weight:500;${amt>50000?'color:#c84b2f':''}">₹${amt.toLocaleString('en-IN')}</td>
+      <td style="font-size:12px;color:#6b6560">${c.dueSince||'—'}</td>
+      <td><span class="badge ${badgeMap[status]}">${labelMap[status]}</span></td>
+      <td><button class="btn btn-ghost btn-sm" onclick="callOne(${c.id})" ${status==='calling'?'disabled':''}>📞 Call</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function callOne(id) {
+  const c = customers.find(x => x.id === id);
+  if (!c) return;
+  callStatus[id] = 'calling';
+  renderTable();
+  try {
+    const r = await fetch(`${SERVER}/api/call`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name: c.name, phone: c.phone, outstanding: c.outstanding, dueSince: c.dueSince })
+    });
+    const d = await r.json();
+    if (d.success) {
+      callStatus[id] = 'called';
+      showToast(`✅ Call initiated to ${c.name}!`);
+    } else {
+      callStatus[id] = 'failed';
+      showToast(`❌ Failed: ${d.error}`);
+    }
+  } catch(e) {
+    callStatus[id] = 'failed';
+    showToast('Server error. Check connection.');
+  }
+  updateMetrics();
+  renderTable();
+}
+
+async function callAll() {
+  const pending = customers.filter(c => callStatus[c.id] === 'pending');
+  if (!pending.length) { showToast('No pending customers!'); return; }
+  if (!confirm(`Start calls to ${pending.length} customers?`)) return;
+
+  document.getElementById('callAllBtn').disabled = true;
+  document.getElementById('callAllBtn').textContent = `Calling ${pending.length}...`;
+
+  try {
+    const r = await fetch(`${SERVER}/api/call-all`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ customers: pending })
+    });
+    const d = await r.json();
+    if (d.success) {
+      d.results.forEach(res => {
+        const c = customers.find(x => x.phone.toString().slice(-10) === res.phone.toString().slice(-10));
+        if (c) callStatus[c.id] = res.status === 'initiated' ? 'called' : 'failed';
+      });
+      const ok = d.results.filter(r => r.status==='initiated').length;
+      showToast(`✅ ${ok} calls initiated!`);
+    }
+  } catch(e) {
+    showToast('Error connecting to server.');
+  }
+
+  document.getElementById('callAllBtn').disabled = false;
+  document.getElementById('callAllBtn').textContent = '📞 Call All Pending';
+  updateMetrics();
+  renderTable();
+}
+
+async function fetchLogs() {
+  try {
+    const r = await fetch(`${SERVER}/api/logs`);
+    const logs = await r.json();
+    const el = document.getElementById('logsList');
+    if (!logs.length) { el.innerHTML = '<div class="empty">No calls yet.</div>'; return; }
+    el.innerHTML = logs.map(l => `
+      <div class="log-item">
+        <div class="log-icon ${l.status==='initiated'||l.status==='completed'?'success':'fail'}">${l.status==='initiated'||l.status==='completed'?'✅':'❌'}</div>
+        <div style="flex:1">
+          <div class="log-name">${l.name} <span style="font-weight:400;color:#6b6560">— ₹${parseFloat(l.outstanding||0).toLocaleString('en-IN')}</span></div>
+          <div class="log-detail">${l.phone} · ${l.status}</div>
+          ${l.script?`<div class="log-script">"${l.script}"</div>`:''}
+        </div>
+        <div class="log-time">${new Date(l.time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</div>
+      </div>`).join('');
+  } catch(e) { showToast('Could not fetch logs'); }
+}
+
+function showTab(tab) {
+  ['dashboard','logs','schedule'].forEach(t => {
+    document.getElementById('tab-'+t).style.display = t===tab?'block':'none';
+  });
+  document.querySelectorAll('.nav-item').forEach((el,i) => {
+    el.classList.toggle('active', ['dashboard','logs','schedule'][i]===tab);
+  });
+}
+
+function saveSchedule() {
+  const on = document.getElementById('scheduleToggle').checked;
+  const time = document.getElementById('scheduleTime').value;
+  if (!on) { showToast('Enable schedule first'); return; }
+  if (scheduleTimer) clearInterval(scheduleTimer);
+  scheduleTimer = setInterval(() => {
+    const now = new Date();
+    const [h,m] = time.split(':').map(Number);
+    if (now.getHours()===h && now.getMinutes()===m) callAll();
+  }, 60000);
+  showToast(`✅ Scheduled daily calls at ${time}`);
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+</script>
+</body>
+</html>
